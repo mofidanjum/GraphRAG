@@ -4,12 +4,48 @@ A hands-on, step-by-step build of the full curriculum: **RAG → GraphRAG → Gr
 Analytics**. Every stage is a real, working pipeline you run yourself, not a finished black box.
 
 **Stage 1 (done):** plain RAG over a PDF — chunk, embed, store in Pinecone, retrieve, answer with Claude.
-Deployed live: **https://rag-agenticanalytics.streamlit.app/**
+Deployed live: * **
 
 **Stage 2 (done):** GraphRAG over patient records — the same data loaded three ways (SQLite, Neo4j,
 Pinecone), queried together, to show exactly where plain RAG breaks and a graph doesn't.
 
 **Stages 3–4 (next):** smarter routing between the three systems, then full agentic analytics.
+
+---
+
+## Architecture
+
+The same source data is loaded into three purpose-built stores. An orchestration layer asks all
+three, then writes one answer citing whichever evidence actually supported it.
+
+```mermaid
+flowchart TD
+    A["Source data<br/>patient CSVs + visit notes"] --> B["Ingestion scripts<br/>build_patient_dataset.py + 3 loaders"]
+    B --> C[("SQLite<br/>relational")]
+    B --> D[("Neo4j Aura<br/>graph")]
+    B --> E[("Pinecone<br/>vector")]
+    C --> F["Orchestration<br/>Claude + LangChain"]
+    D --> F
+    E --> F
+    F --> G["Synthesized answer"]
+    G --> H["Streamlit UI<br/>answer + auto-chart + evidence panels"]
+
+    classDef neutral fill:#E7ECEA,stroke:#C1CBC8,color:#121A1D,stroke-width:1.5px
+    classDef relational fill:#E7E7FA,stroke:#5B5FCF,color:#33348C,stroke-width:2px
+    classDef graphdb fill:#DCF0EF,stroke:#00969B,color:#046267,stroke-width:2px
+    classDef vector fill:#F5E7D2,stroke:#BD7A22,color:#8C4C13,stroke-width:2px
+
+    class A,B,H neutral
+    class C relational
+    class D graphdb
+    class E vector
+    class F neutral
+    class G graphdb
+```
+
+- **SQLite** — exact facts, fast joins (patients, visits, medications, conditions, procedures)
+- **Neo4j** — relationships, arbitrary traversal depth
+- **Pinecone** — meaning, fuzzy phrasing (visit notes, embedded via MiniLM)
 
 ---
 
@@ -73,6 +109,28 @@ Test questions, including a deliberately unanswerable one: [`query.md`](query.md
 [Synthea](https://synthetichealth.github.io/synthea/)) with rich visit histories, deliberately picked
 so several patients share a diabetes/insulin history *and* have a completely unrelated condition
 (like sinusitis) — the exact shape of question plain vector search struggles with, and a graph doesn't.
+
+**The graph shape**, built by `graphrag_02_load_graph.py`:
+
+```mermaid
+flowchart LR
+    P((Patient)) -->|HAD_VISIT| V([Visit])
+    V -->|PRESCRIBED| M[Medication]
+    V -->|DIAGNOSED_WITH| C[Condition]
+    V -->|UNDERWENT| PR[Procedure]
+
+    classDef patient fill:#DCF0EF,stroke:#00969B,color:#046267,stroke-width:2px
+    classDef visit fill:#E7ECEA,stroke:#C1CBC8,color:#121A1D,stroke-width:1.5px
+    classDef leaf fill:#FFFFFF,stroke:#00969B,color:#046267,stroke-width:1.5px
+
+    class P patient
+    class V visit
+    class M,C,PR leaf
+```
+
+Two typed, directed relationships hanging off every patient — no ambiguous shared key to
+misjoin, unlike the flat `VISIT_ID` column SQLite's `medications` and `conditions` tables both
+happen to have.
 
 Run each script once, in order, to build all three systems from scratch:
 
